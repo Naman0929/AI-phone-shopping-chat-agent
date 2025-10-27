@@ -52,8 +52,8 @@ E --> H[Final Response]
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/kubowania/ecommerce-chat-helper
-cd ecommerce-chat-helper
+git clone https://github.com/Naman0929/AI-phone-shopping-chat-agent
+cd AI-phone-shopping-chat-agent
 ```
 
 ### 2. Backend Setup
