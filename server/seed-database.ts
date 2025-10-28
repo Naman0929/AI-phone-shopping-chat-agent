@@ -5,18 +5,11 @@ import { MongoClient } from "mongodb"
 import { MongoDBAtlasVectorSearch } from "@langchain/mongodb"
 import { z } from "zod"
 import "dotenv/config"
-// import dotenv from "dotenv";
 import { error } from "console"
 import dotenv from "dotenv";
 dotenv.config();
 
 const client = new MongoClient(process.env.MONGODB_ATLAS_URI as string)
-
-// const llm = new ChatGoogleGenerativeAI({
-//     model: "gemini-1.5-flash",
-//     temperature: 0.7,
-//     apiKey: process.env.GOOGLE_API_KEY,
-// })
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY as string);
 const model = genAI.getGenerativeModel({ model: "models/gemini-2.5-flash" });
