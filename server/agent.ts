@@ -73,39 +73,35 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
                         textKey: "embedding_text",
                         embeddingKey: "embedding"
                     }
-
-                    // Create vector store instance for semantic search using Google Gemini embeddings
+                    
                     const vectorStore = new MongoDBAtlasVectorSearch(
                         new GoogleGenerativeAIEmbeddings({
-                        apiKey: process.env.GOOGLE_API_KEY, // Google API key from environment
-                        model: "text-embedding-004",         // Gemini embedding model
+                        apiKey: process.env.GOOGLE_API_KEY, 
+                        model: "text-embedding-004",    
                         }),
                         dbConfig
                     )
 
                     console.log("Performing vector search...")
-                    // Perform semantic search using vector embeddings
                     const result = await vectorStore.similaritySearchWithScore(query, n)
                     console.log(`Vector search returned ${result.length} results`)
 
-                    // If vector search returns no results, fall back to text search
                     if (result.length === 0) {
                         console.log("Vector search returned no results, trying text search...")
-                        // MongoDB text search using regular expressions
                         const textResults = await collection.find({
-                            $or: [ // OR condition - match any of these fields
-                            { item_name: { $regex: query, $options: 'i' } },        // Case-insensitive search in item name
-                            { item_description: { $regex: query, $options: 'i' } }, // Case-insensitive search in description
-                            { categories: { $regex: query, $options: 'i' } },       // Case-insensitive search in categories
-                            { embedding_text: { $regex: query, $options: 'i' } }    // Case-insensitive search in embedding text
+                            $or: [
+                            { item_name: { $regex: query, $options: 'i' } },       
+                            { item_description: { $regex: query, $options: 'i' } }, 
+                            { categories: { $regex: query, $options: 'i' } },       
+                            { embedding_text: { $regex: query, $options: 'i' } } 
                         ]
-                        }).limit(n).toArray() // Limit results and convert to array
+                        }).limit(n).toArray()
             
                         console.log(`Text search returned ${textResults.length} results`)
                         
                         return JSON.stringify({
                             results: textResults,
-                            searchType: "text",    // Indicate this was a text search
+                            searchType: "text",
                             query: query,
                             count: textResults.length
                         })
@@ -113,7 +109,7 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
 
                     return JSON.stringify({
                         results: result,
-                        searchType: "vector",   // Indicate this was a vector search
+                        searchType: "vector",
                         query: query,
                         count: result.length
                     })
@@ -125,7 +121,6 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
                         name: error.name
                     })
                     
-                    // Return error information as JSON string
                     return JSON.stringify({ 
                         error: "Failed to search inventory", 
                         details: error.message,
@@ -134,13 +129,12 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
                 }
             },
 
-            // Tool metadata and schema definition
             {
-                name: "item_lookup",                                    // Tool name that the AI will reference
-                description: "Gathers mobile phone models details from the Inventory database", // Description for the AI
-                schema: z.object({                                      // Input validation schema
-                    query: z.string().describe("The search query"),      // Required string parameter
-                    n: z.number().optional().default(10)                 // Optional number parameter with default
+                name: "item_lookup",
+                description: "Gathers mobile phone models details from the Inventory database", 
+                schema: z.object({
+                    query: z.string().describe("The search query"),
+                    n: z.number().optional().default(10)
                     .describe("Number of results to return"),
                 }),
             }
@@ -157,26 +151,21 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
             apiKey: process.env.GOOGLE_API_KEY, 
         }).bindTools(tools)                  
 
-        // Decision function: determines next step in the workflow
         function shouldContinue(state: typeof GraphState.State) {
-            const messages = state.messages                               // Get all messages
-            const lastMessage = messages[messages.length - 1] as AIMessage // Get the most recent message
+            const messages = state.messages
+            const lastMessage = messages[messages.length - 1] as AIMessage
 
-            // If the AI wants to use tools, go to tools node; otherwise end
             if (lastMessage.tool_calls?.length) {
-                return "tools"  // Route to tool execution
+                return "tools"
             }
-            return "__end__"  // End the workflow
+            return "__end__"
         }
 
-
-        // Function that calls the AI model with retry logic
         async function callModel(state: typeof GraphState.State) {
-            return retryWithBackOff(async () => { // Wrap in retry logic
-            // Create a structured prompt template
+            return retryWithBackOff(async () => {
             const prompt = ChatPromptTemplate.fromMessages([
                 [
-                    "system", // System message defines the AI's role and behavior
+                    "system",
                     `You are a helpful Mobile Phones Chatbot Agent for a Mobile Phone phone store. 
 
                     IMPORTANT: You have access to an item_lookup tool that searches the furniture inventory database.
@@ -190,48 +179,39 @@ export async function callAgent(client: MongoClient, query: string, thread_id: s
 
                     Current time: {time}`,
                 ],
-                new MessagesPlaceholder("messages"), // Placeholder for conversation history
+                new MessagesPlaceholder("messages"),
             ])
-
-            // Fill in the prompt template with actual values
+                
             const formattedPrompt = await prompt.formatMessages({
-                time: new Date().toISOString(), // Current timestamp
-                messages: state.messages,       // All previous messages
+                time: new Date().toISOString(),
+                messages: state.messages,
                 })
 
-                // Call the AI model with the formatted prompt
                 const result = await model.invoke(formattedPrompt)
-                // Return new state with the AI's response added
                 return { messages: [result] }
             })
         }
 
-
-        // Build the workflow graph
         const workflow = new StateGraph(GraphState)
-        .addNode("agent", callModel)                    // Add AI model node
-        .addNode("tools", toolNode)                     // Add tool execution node
-        .addEdge("__start__", "agent")                  // Start workflow at agent
-        .addConditionalEdges("agent", shouldContinue)   // Agent decides: tools or end
-        .addEdge("tools", "agent")                      // After tools, go back to agent
+        .addNode("agent", callModel)
+        .addNode("tools", toolNode)
+        .addEdge("__start__", "agent")
+        .addConditionalEdges("agent", shouldContinue)
+        .addEdge("tools", "agent")
 
-        // Initialize conversation state persistence
         const checkpointer = new MongoDBSaver({ client, dbName })
-        // Compile the workflow with state saving
         const app = workflow.compile({ checkpointer })
 
-        // Execute the workflow
         const finalState = await app.invoke(
             {
-                messages: [new HumanMessage(query)], // Start with user's question
+                messages: [new HumanMessage(query)],
             },
             { 
-                recursionLimit: 15,                   // Prevent infinite loops
-                configurable: { thread_id: thread_id } // Conversation thread identifier
+                recursionLimit: 15,
+                configurable: { thread_id: thread_id }
             }
         )
 
-        // Extract the final response from the conversation
         const response = finalState.messages[finalState.messages.length - 1].content
         console.log("Agent response:", response)
         return response
